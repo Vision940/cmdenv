@@ -3,9 +3,11 @@
 ###ExcAlias ce
 ###Function cmdenv
 # "\t${B}cmdenv${N} CMD";
-# "\t\tcmdenv will create an environment for any CMD given and attempt to provide completion for that command";
-# "\t\teverything run in cmd env is equivalent to running \`CMD $@\`";
+# "\t\tcmdenv will create a terminal environment with history support for any CMD given";
+# "\t\tcmdenv will attempt to provide completion for CMD";
+# "\t\teverything run in cmd env is equivalent to running \`CMD \$@\`";
 # "\t\ttype \"help\" while in cmd env to run CMD --help";
+# "\t\tcmdenv can also be run with the alias \`ce\`";
 ###
 
 # This is here because above documentation is a separate rc
@@ -14,9 +16,11 @@ _cmdenv_usage() {
   local N='\033[00m';
 
   echo -e "\t${B}cmdenv${N} CMD";
-  echo -e "\t\tcmdenv will create an environment for any CMD given and attempt to provide completion for that command";
-  echo -e "\t\teverything run in cmd env is equivalent to running \`CMD $@\`";
+  echo -e "\t\tcmdenv will create a terminal environment with history support for any CMD given";
+  echo -e "\t\tcmdenv will attempt to provide completion for CMD";
+  echo -e "\t\teverything run in cmd env is equivalent to running \`CMD \$@\`";
   echo -e "\t\ttype \"help\" while in cmd env to run CMD --help";
+  echo -e "\t\tcmdenv can also be run with the alias \`ce\`";
 }
 
 #TODO: cmdenv: handle nospace in completion aftermath with new post-fxn in bind and self-tracked line length
@@ -25,8 +29,8 @@ cmdenv() {
 
   local userInput
   local envCmd=${1?Error: requires cmd to use for environment}
-  if declare -f __load_completion &>/dev/null; then __load_completion $envCmd; fi # load completion for cmd
-  local envCmdCompletion=$(complete -p $envCmd 2>/dev/null | sed -n 's/complete.* -F \([^ ]\+\) '"$envCmd"'/\1/p') # Currently only completes from functions
+  if declare -f __load_completion &>/dev/null; then __load_completion $envCmd 2>/dev/null; fi # load completion for cmd
+  local envCmdCompletion=$(complete -p $envCmd 2>/dev/null | sed -n 's/complete.* -F \([^ ]\+\) '"$envCmd"'/\1/p') # currently only completes from functions
   local hostfile=/tmp/.${envCmd}envcompletion
 
   local __cmd_env_hist_idx=0
@@ -34,7 +38,7 @@ cmdenv() {
   local histfile=/tmp/.cmdenvhist-$USER
   local currfile=/tmp/.cmdenvcurridx-$USER
 
-  # Special case handling
+  # Special case handling - add more here if needed
   [[ "$envCmd" == "podman" ]] && export DBUS_SESSION_BUS_ADDRESS= # needs to be unset if x11
   [[ "$envCmd" == "${FUNCNAME[-1]}" ]] && echo Be very careful... # this is calling itself
   [[ " --help -h help -help " =~ " $envCmd " ]] && { _cmdenv_usage; return; }
@@ -126,7 +130,7 @@ cmdenv() {
     echo "0 notinitialized" > $hostfile
     unset HOSTFILE # clear any already-read hosts
     HOSTFILE=$hostfile \
-    read -e -p '>' || return $?
+    read -e -p ">" || return $?
 
     printf '%s' "$REPLY"
     \rm $hostfile &>/dev/null
@@ -180,7 +184,7 @@ cmdenv() {
     if [[ -n "$userInput" && " h help --help -h -help " =~ "$userInput" ]]; then
       $envCmd --help
       echo
-      echo "   \"?\" will open cmdenv help"
+      echo "   \"?\" will print ${FUNCNAME[-1]} help"
       echo "   \"exit\" will exit the $envCmd env"
     elif [[ "$userInput" == "?" ]]; then
       rcman cmdenv

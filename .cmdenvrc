@@ -5,39 +5,131 @@
 # "\t${B}cmdenv${N} CMD";
 # "\t\tcmdenv will create an environment for any CMD given and attempt to provide completion for that command";
 # "\t\teverything run in cmd env is equivalent to running \`CMD $@\`";
-# "\t\ttype \"help\" once in cmd env to run CMD --help";
+# "\t\ttype \"help\" while in cmd env to run CMD --help";
 ###
+
+# This is here because above documentation is a separate rc
+_cmdenv_usage() {
+  local B='\033[1m';
+  local N='\033[00m';
+
+  echo -e "\t${B}cmdenv${N} CMD";
+  echo -e "\t\tcmdenv will create an environment for any CMD given and attempt to provide completion for that command";
+  echo -e "\t\teverything run in cmd env is equivalent to running \`CMD $@\`";
+  echo -e "\t\ttype \"help\" while in cmd env to run CMD --help";
+}
+
 #TODO: cmdenv: handle nospace in completion aftermath with new post-fxn in bind and self-tracked line length
-#TODO: cmdenv: update with history-tracking improvements from boom poll
 cmdenv() {
+  [[ -z "$USER" ]] && USER=$(whoami)
+
   local userInput
   local envCmd=${1?Error: requires cmd to use for environment}
   if declare -f __load_completion &>/dev/null; then __load_completion $envCmd; fi # load completion for cmd
-  local envCmdCompletion=$(complete -p $envCmd 2>/dev/null | sed -n 's/complete.* -F \([^ ]\+\) '"$envCmd"'/\1/p')
+  local envCmdCompletion=$(complete -p $envCmd 2>/dev/null | sed -n 's/complete.* -F \([^ ]\+\) '"$envCmd"'/\1/p') # Currently only completes from functions
   local hostfile=/tmp/.${envCmd}envcompletion
 
-  # Special cases
+  local __cmd_env_hist_idx=0
+
+  local histfile=/tmp/.cmdenvhist-$USER
+  local currfile=/tmp/.cmdenvcurridx-$USER
+
+  # Special case handling
   [[ "$envCmd" == "podman" ]] && export DBUS_SESSION_BUS_ADDRESS= # needs to be unset if x11
   [[ "$envCmd" == "${FUNCNAME[-1]}" ]] && echo Be very careful... # this is calling itself
-  [[ "$envCmd" == "git" ]] && echo Make commits in gui or outside of cmdenv # git editor and quoted strs are weird
-  [[ " --help -h help -help " =~ " $envCmd " ]] && { rcman cmdenv; return; }
+  [[ " --help -h help -help " =~ " $envCmd " ]] && { _cmdenv_usage; return; }
 
   if [[ -z "$envCmdCompletion" ]]; then echo Completion not supported for $envCmd env; fi
   echo "Entering environment for $envCmd..."
 
+  if [[ ! -f "$histfile" ]]; then
+    echo -n '' > $histfile
+  else
+    __cmd_env_hist_idx=$(wc -l <$histfile)
+  fi
+
+  echo -n "$__cmd_env_hist_idx" > /tmp/.cmdenvcurridx-$USER
+
+  # History handling
+  __cmd_env_hist_up() {
+    [[ -z "$USER" ]] && USER=$(whoami)
+    histfile=/tmp/.cmdenvhist-$USER
+    idxfile=/tmp/.cmdenvcurridx-$USER
+    currfile=/tmp/.cmdenvcurrline-$USER
+
+    __cmd_env_idxs=($(awk '{print $1}' $histfile))
+    while read line; do
+      __cmd_env_hist+=("${line#* }")
+    done < $histfile
+    __cmd_env_idx=$(cat $idxfile)
+
+    if [[ $__cmd_env_idx -eq ${#__cmd_env_idxs[@]} ]]; then
+      echo -n $READLINE_LINE > $currfile
+    fi
+
+    [ ${#__cmd_env_idxs[@]} -gt 0 ] || return
+    [ $((__cmd_env_idx-1))  -ge 0 ] || return
+    echo -n "$((__cmd_env_idx-1))" > $idxfile
+
+    READLINE_LINE="${__cmd_env_hist[$(cat $idxfile)]}"
+    READLINE_POINT=${#READLINE_LINE}
+  }
+  __cmd_env_hist_down() {
+    [[ -z "$USER" ]] && USER=$(whoami)
+    histfile=/tmp/.cmdenvhist-$USER
+    idxfile=/tmp/.cmdenvcurridx-$USER
+    currfile=/tmp/.cmdenvcurrline-$USER
+
+    __cmd_env_idxs=($(awk '{print $1}' $histfile))
+    while read line; do
+      __cmd_env_hist+=("${line#* }")
+    done < $histfile
+    __cmd_env_idx=$(cat $idxfile)
+
+    if [ $((__cmd_env_idx+1)) -eq ${#__cmd_env_idxs[@]} ]; then
+      echo -n "${#__cmd_env_idxs[@]}" > $idxfile
+
+      READLINE_LINE="$(cat $currfile 2>/dev/null)"
+      READLINE_POINT=${#READLINE_LINE}
+
+      \rm $currfile &>/dev/null
+      return
+    elif [ $((__cmd_env_idx+1)) -gt ${#__cmd_env_idxs[@]} ]; then
+      return
+    fi
+
+    echo -n "$((__cmd_env_idx+1))" > $idxfile
+
+    READLINE_LINE="${__cmd_env_hist[$(cat $idxfile)]}"
+    READLINE_POINT=${#READLINE_LINE}
+  }
+
   _cmd_env_read_with_completion() {
+    [[ -z "$USER" ]] && USER=$(whoami)
+
+    local hostfile=/tmp/.boomhostcompletion
+    local currfile=/tmp/.cmdenvcurrline-$USER
+
+    [ -f $currfile ] && \rm $currfile &>/dev/null
     set -o emacs
+    unset HOSTFILE
     export HOSTFILE=$hostfile
-    bind '"\e[A": ""' # don't allow up arrow
+    bind -r "\C-r" # unbind reverse-i search
+    bind -x '"\e[A":"__cmd_env_hist_up"' # up goes up in history
+    bind -x '"\e[B":"__cmd_env_hist_down"' # down goes down in history
+    bind -x '"\e[5~":"__cmd_env_hist_up"' # rebind PgUp
+    bind -x '"\e[6~":"__cmd_env_hist_down"' # rebind PgDown
     bind '"\C-g":complete-hostname' # complete from dynamically generated hostfile
     bind '"\C-xy":possible-hostname-completions' # print completions if multiple options
-    bind -x '"\C-xh":"__cmd_env_comp"' # generate hostfile
+    bind -x '"\C-xh":"__cmd_env_comp /tmp/.boomhostcompletion"' # generate hostfile
     bind '"\t":"\C-xh\C-g\C-xy"'
     echo "0 notinitialized" > $hostfile
     unset HOSTFILE # clear any already-read hosts
     HOSTFILE=$hostfile \
-    read -e -p ' > ' && printf '%s' "$REPLY"
-    rm $hostfile &>/dev/null
+    read -e -p '>' || return $?
+
+    printf '%s' "$REPLY"
+    \rm $hostfile &>/dev/null
   }
   __cmd_env_comp() {
     # Only support fxn completion
@@ -71,19 +163,31 @@ cmdenv() {
     unset HOSTFILE
     HOSTFILE=$hostfile
   }
+
   while :; do
-    userInput=$(_cmd_env_read_with_completion) # must be in subshell so bind/histfile things don't break env
+    if ! userInput=$(_cmd_env_read_with_completion); then # must be in subshell so bind/histfile things don't break env
+      echo exit # exit when ^D or read failure
+      break
+    fi
+
+    if [[ -n "$userInput" ]]; then
+      __cmd_env_hist_idx=$(wc -l <$histfile)
+      echo "${__cmd_env_hist_idx:-0} $userInput" >> $histfile
+      __cmd_env_hist_idx=$(wc -l <$histfile)
+    fi
+    echo -n "$__cmd_env_hist_idx" > /tmp/.cmdenvcurridx-$USER
+
     if [[ -n "$userInput" && " h help --help -h -help " =~ "$userInput" ]]; then
-      $envCmd --help | sed -e 's|^|   |'
+      $envCmd --help
       echo
       echo "   \"?\" will open cmdenv help"
       echo "   \"exit\" will exit the $envCmd env"
     elif [[ "$userInput" == "?" ]]; then
       rcman cmdenv
     elif [[ -z "$userInput" ]]; then continue
-    elif [[ "$userInput" =~ ^"env" ]]; then echo "   Avoiding env-ception..."; continue 
+    elif [[ "$userInput" =~ ^"env" ]]; then echo "   Avoiding env-ception..."; continue
     elif [[ "$userInput" != "exit" ]]; then
-      $envCmd $userInput | sed -e 's|^|   |'
+      $envCmd $userInput
     else
       break
     fi

@@ -161,7 +161,7 @@ cmdenv() {
 
     # Build out hosts file to complete from for complete-hostname
     echo -n '' >$hostfile
-    for word in $(echo ${COMPREPLY[@]}); do [[ ! "$word" =~ ^"@" ]] && echo 0 $word >>$hostfile; done # 0 in case comp starts with num
+    for word in $(echo ${COMPREPLY[@]}); do echo 0 $word >>$hostfile; done # 0 in case comp starts with num
 
     # Get bash to call sv_hostfile to re-init hostfile for completion with new options
     unset HOSTFILE
@@ -187,9 +187,8 @@ cmdenv() {
       echo "   \"?\" will print ${FUNCNAME[-1]} help"
       echo "   \"exit\" will exit the $envCmd env"
     elif [[ "$userInput" == "?" ]]; then
-      rcman cmdenv
+      _cmdenv_usage
     elif [[ -z "$userInput" ]]; then continue
-    elif [[ "$userInput" =~ ^"env" ]]; then echo "   Avoiding env-ception..."; continue
     elif [[ "$userInput" != "exit" ]]; then
       $envCmd $userInput
     else

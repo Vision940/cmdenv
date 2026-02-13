@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+
+###ExcAlias ce
+###Function cmdenv
+# "\t${B}cmdenv${N} CMD";
+# "\t\tcmdenv will create an environment for any CMD given and attempt to provide completion for that command";
+# "\t\teverything run in cmd env is equivalent to running \`CMD $@\`";
+# "\t\ttype \"help\" once in cmd env to run CMD --help";
+###
+#TODO: cmdenv: handle nospace in completion aftermath with new post-fxn in bind and self-tracked line length
+#TODO: cmdenv: update with history-tracking improvements from boom poll
+cmdenv() {
+  local userInput
+  local envCmd=${1?Error: requires cmd to use for environment}
+  if declare -f __load_completion &>/dev/null; then __load_completion $envCmd; fi # load completion for cmd
+  local envCmdCompletion=$(complete -p $envCmd 2>/dev/null | sed -n 's/complete.* -F \([^ ]\+\) '"$envCmd"'/\1/p')
+  local hostfile=/tmp/.${envCmd}envcompletion
+
+  # Special cases
+  [[ "$envCmd" == "podman" ]] && export DBUS_SESSION_BUS_ADDRESS= # needs to be unset if x11
+  [[ "$envCmd" == "${FUNCNAME[-1]}" ]] && echo Be very careful... # this is calling itself
+  [[ "$envCmd" == "git" ]] && echo Make commits in gui or outside of cmdenv # git editor and quoted strs are weird
+  [[ " --help -h help -help " =~ " $envCmd " ]] && { rcman cmdenv; return; }
+
+  if [[ -z "$envCmdCompletion" ]]; then echo Completion not supported for $envCmd env; fi
+  echo "Entering environment for $envCmd..."
+
+  _cmd_env_read_with_completion() {
+    set -o emacs
+    export HOSTFILE=$hostfile
+    bind '"\e[A": ""' # don't allow up arrow
+    bind '"\C-g":complete-hostname' # complete from dynamically generated hostfile
+    bind '"\C-xy":possible-hostname-completions' # print completions if multiple options
+    bind -x '"\C-xh":"__cmd_env_comp"' # generate hostfile
+    bind '"\t":"\C-xh\C-g\C-xy"'
+    echo "0 notinitialized" > $hostfile
+    unset HOSTFILE # clear any already-read hosts
+    HOSTFILE=$hostfile \
+    read -e -p ' > ' && printf '%s' "$REPLY"
+    rm $hostfile &>/dev/null
+  }
+  __cmd_env_comp() {
+    # Only support fxn completion
+    if [[ -z "$envCmdCompletion" ]]; then echo '' >$hostfile; return; fi
+
+    local curline="${READLINE_LINE:0:$READLINE_POINT}" # save current line up to cursor
+    local cur="${curline##* }" # save current word
+    local prev="${curline% *}"
+    [[ "$prev" =~ " " ]] && prev="${prev##* }" # save previous word
+    [[ ! "$curline" =~ ' ' ]] && prev=$envCmd
+
+    # Trick $envCmd completion to complete for us
+    COMP_WORDS=($(echo "$envCmd $curline"))
+    [[ -z "$cur" ]] && COMP_WORDS+=('')
+    COMP_LINE="$envCmd $curline"
+    COMP_CWORD=$(( ${#COMP_WORDS[@]} - 1 ))
+    COMP_POINT=${#COMP_LINE}
+    $envCmdCompletion $envCmd ${cur:-''} $prev 2>/dev/null
+
+    # Handle special cases
+    if [[ "$cur" =~ [^-a-zA-Z0-9/] ]]; then
+      # Empty compreply bc anything else will break hostname completion
+      COMPREPLY=()
+    fi
+
+    # Build out hosts file to complete from for complete-hostname
+    echo -n '' >$hostfile
+    for word in $(echo ${COMPREPLY[@]}); do [[ ! "$word" =~ ^"@" ]] && echo 0 $word >>$hostfile; done # 0 in case comp starts with num
+
+    # Get bash to call sv_hostfile to re-init hostfile for completion with new options
+    unset HOSTFILE
+    HOSTFILE=$hostfile
+  }
+  while :; do
+    userInput=$(_cmd_env_read_with_completion) # must be in subshell so bind/histfile things don't break env
+    if [[ -n "$userInput" && " h help --help -h -help " =~ "$userInput" ]]; then
+      $envCmd --help | sed -e 's|^|   |'
+      echo
+      echo "   \"?\" will open cmdenv help"
+      echo "   \"exit\" will exit the $envCmd env"
+    elif [[ "$userInput" == "?" ]]; then
+      rcman cmdenv
+    elif [[ -z "$userInput" ]]; then continue
+    elif [[ "$userInput" =~ ^"env" ]]; then echo "   Avoiding env-ception..."; continue 
+    elif [[ "$userInput" != "exit" ]]; then
+      $envCmd $userInput | sed -e 's|^|   |'
+    else
+      break
+    fi
+  done
+}
+complete -c cmdenv
+alias ce='cmdenv'
+complete -c ce
+

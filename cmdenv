@@ -24,6 +24,7 @@ _cmdenv_usage() {
 }
 
 #TODO: cmdenv: handle nospace in completion aftermath with new post-fxn in bind and self-tracked line length
+#TODO: cmdenv: add options for quiet, etc using getopts
 cmdenv() {
   [[ -z "$USER" ]] && USER=$(whoami)
 
@@ -197,6 +198,12 @@ cmdenv() {
   done
 }
 complete -c cmdenv
-alias ce='cmdenv'
-complete -c ce
+if ! command -v ce &>/dev/null; then
+  alias ce='cmdenv'
+  complete -c ce
+fi
+
+if ! return 2>/dev/null; then
+  cmdenv $@
+fi
 

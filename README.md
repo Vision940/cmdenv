@@ -1,6 +1,8 @@
 # cmdenv
 ## Install
-Source .cmdenvrc in your .bashrc to make the `cmdenv` command and the `ce` alias available locally!
+Source cmdenv in your .bashrc to make the `cmdenv` command and the `ce` alias available locally!
+
+The cmdenv file can also be made executable and added to your PATH to be run like a normal command!
 
 ## Documentation
 **cmdenv** CMD

@@ -16,3 +16,6 @@ The cmdenv file can also be made executable and added to your PATH to be run lik
 ## Examples
 Try out cmdenv with `ce git`! This allows you to run status/commit/push/etc without typing git first!
 
+## Note
+The features cmdenv provides (completion/history in nested env) could probably be done better in bash 5.3+ using `read -E`. This approach provides a more backwards compatible method of attempting these features in bash, however, so it will likely remain as is.
+

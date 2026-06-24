@@ -131,7 +131,7 @@ cmdenv() {
     echo "0 notinitialized" > $hostfile
     unset HOSTFILE # clear any already-read hosts
     HOSTFILE=$hostfile \
-    read -e -p ">" || return $?
+    read -er -p ">" || return $?
 
     printf '%s' "$REPLY"
     \rm $hostfile &>/dev/null
@@ -191,7 +191,7 @@ cmdenv() {
       _cmdenv_usage
     elif [[ -z "$userInput" ]]; then continue
     elif [[ "$userInput" != "exit" ]]; then
-      $envCmd $userInput
+      eval $envCmd $userInput
     else
       break
     fi
@@ -203,7 +203,7 @@ if ! command -v ce &>/dev/null; then
   complete -c ce
 fi
 
-if ! return 2>/dev/null; then
-  cmdenv $@
+if ! ( return 0 2>/dev/null ); then
+  cmdenv "$@"
 fi
 
